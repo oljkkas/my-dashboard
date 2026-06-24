@@ -39,6 +39,7 @@
         .status { margin-top: 10px; font-size: 13px; color: #7f8c8d; }
         .status.success { color: #27ae60; }
         .hidden { display: none !important; }
+        .debug-info { background: #fff3cd; padding: 12px; border-radius: 5px; margin-top: 15px; text-align: left; font-size: 12px; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; }
     </style>
 </head>
 <body>
@@ -54,6 +55,7 @@
         </div>
         <div id="statusMsg" class="status"></div>
         <div id="errorMsg" class="error"></div>
+        <div id="debugInfo" class="debug-info hidden"></div>
     </div>
 
     <div id="dashboard" class="hidden">
@@ -88,6 +90,7 @@
     const refreshBtn = document.getElementById('refreshBtn');
     const statusMsg = document.getElementById('statusMsg');
     const errorMsg = document.getElementById('errorMsg');
+    const debugInfo = document.getElementById('debugInfo');
     const dashboard = document.getElementById('dashboard');
     const dateFrom = document.getElementById('dateFrom');
     const dateTo = document.getElementById('dateTo');
@@ -121,6 +124,8 @@
         setStatus('Загрузка...', 'loading');
         loadBtn.disabled = true;
         errorMsg.textContent = '';
+        debugInfo.innerHTML = '<strong>Диагностика:</strong>\n';
+        debugInfo.classList.remove('hidden');
 
         const queryUrl = `https://docs.google.com/spreadsheets/d/${tableId}/gviz/tq?tqx=out:csv&gid=${gid}&_=${Date.now()}`;
 
@@ -135,6 +140,7 @@
             setStatus(`✅ Загружено строк: ${rawData.length}. Обновлено: ${new Date().toLocaleTimeString('ru-RU')}`, 'success');
             refreshBtn.disabled = false;
         } catch (err) {
+            debugInfo.innerHTML += `\n❌ Ошибка: ${err.message}\n`;
             showError('Ошибка: ' + err.message);
             loadBtn.disabled = false;
         }
@@ -166,13 +172,78 @@
         return result;
     }
 
+    // УЛУЧШЕННАЯ ФУНКЦИЯ ПАРСИНГА ДАТ
     function parseDate(str) {
         if (!str) return null;
         str = String(str).trim();
-        if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) {
-            const [d, m, y] = str.split('.');
-            return new Date(+y, +m - 1, +d);
+        
+        // Если это число (Excel serial date)
+        if (/^\d+$/.test(str)) {
+            const excelDate = parseInt(str);
+            if (excelDate > 30000 && excelDate < 100000) { // Диапазон для дат 1980-2100
+                const date = new Date((excelDate - 25569) * 86400 * 1000);
+                return date;
+            }
         }
+        
+        // Русский формат: ДД.ММ.ГГГГ (приоритетный!)
+        if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) {
+            const parts = str.split('.');
+            const day = parseInt(parts[0]);
+            const month = parseInt(parts[1]);
+            const year = parseInt(parts[2]);
+            // Проверяем, что это действительно ДД.ММ.ГГГГ, а не ММ.ДД.ГГГГ
+            if (day <= 31 && month <= 12) {
+                return new Date(year, month - 1, day);
+            }
+        }
+        
+        // Формат с разделителем /: ДД/ММ/ГГГГ или ММ/ДД/ГГГГ
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+            const parts = str.split('/');
+            const first = parseInt(parts[0]);
+            const second = parseInt(parts[1]);
+            const year = parseInt(parts[2]);
+            // Если первое число > 12, то это точно день
+            if (first > 12 && second <= 12) {
+                return new Date(year, second - 1, first);
+            }
+            // Если второе число > 12, то это точно день
+            if (second > 12 && first <= 12) {
+                return new Date(year, first - 1, second);
+            }
+            // По умолчанию считаем ДД/ММ/ГГГГ (европейский формат)
+            return new Date(year, second - 1, first);
+        }
+        
+        // ISO формат: ГГГГ-ММ-ДД
+        if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+            const d = new Date(str);
+            if (!isNaN(d.getTime())) return d;
+        }
+        
+        // Текстовые форматы с русскими месяцами
+        const ruMonths = {
+            'янв': 0, 'фев': 1, 'мар': 2, 'апр': 3, 'май': 4, 'июн': 5,
+            'июл': 6, 'авг': 7, 'сен': 8, 'окт': 9, 'ноя': 10, 'дек': 11,
+            'январ': 0, 'феврал': 1, 'март': 2, 'апрел': 3, 'мая': 4, 'июн': 5,
+            'июл': 6, 'август': 7, 'сентябр': 8, 'октябр': 9, 'ноябр': 10, 'декабр': 11
+        };
+        
+        const lowerStr = str.toLowerCase();
+        for (const [key, month] of Object.entries(ruMonths)) {
+            if (lowerStr.includes(key)) {
+                const dayMatch = str.match(/(\d{1,2})/);
+                const yearMatch = str.match(/(\d{4})/);
+                if (dayMatch && yearMatch) {
+                    const day = parseInt(dayMatch[1]);
+                    const year = parseInt(yearMatch[1]);
+                    return new Date(year, month, day);
+                }
+            }
+        }
+        
+        // Fallback: пробуем стандартный парсер
         const d = new Date(str);
         return isNaN(d.getTime()) ? null : d;
     }
@@ -194,25 +265,54 @@
         if (dateIdx === -1 || sumIdx === -1) throw new Error('Не найдены колонки «Дата» и «Сумма»');
         columnMap = { date: dateIdx, client: clientIdx, product: productIdx, sum: sumIdx };
 
+        debugInfo.innerHTML += `Заголовки: ${headers.join(' | ')}\n`;
+        debugInfo.innerHTML += `Колонка даты: индекс ${dateIdx}\n\n`;
+
         rawData = [];
         let skipped = 0, minDate = null, maxDate = null;
+        const dateFormats = {}; // Собираем статистику форматов
+        
         for (let i = 1; i < lines.length; i++) {
             const row = parseCSVLine(lines[i], delimiter);
             if (!row.length) continue;
-            const dateObj = parseDate(row[dateIdx]);
+            
+            const rawDateStr = row[dateIdx];
+            const dateObj = parseDate(rawDateStr);
             const sumVal = parseSum(row[sumIdx]);
-            if (!dateObj || isNaN(sumVal)) { skipped++; continue; }
+            
+            if (!dateObj || isNaN(sumVal)) { 
+                skipped++; 
+                continue; 
+            }
+            
+            // Собираем статистику форматов дат
+            const format = rawDateStr.trim();
+            dateFormats[format] = (dateFormats[format] || 0) + 1;
+            
             const client = clientIdx >= 0 ? (row[clientIdx] || '—').trim() : null;
             const product = productIdx >= 0 ? (row[productIdx] || '—').trim() : null;
             rawData.push({ date: dateObj, client, product, sum: sumVal });
+            
             if (!minDate || dateObj < minDate) minDate = dateObj;
             if (!maxDate || dateObj > maxDate) maxDate = dateObj;
         }
+        
         if (rawData.length === 0) throw new Error('Нет валидных данных');
+
+        // Показываем статистику форматов дат
+        debugInfo.innerHTML += `<strong>Форматы дат в данных:</strong>\n`;
+        const topFormats = Object.entries(dateFormats).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        topFormats.forEach(([format, count]) => {
+            debugInfo.innerHTML += `  "${format}" — ${count} раз\n`;
+        });
+        debugInfo.innerHTML += `\n`;
 
         globalMinDate = minDate; globalMaxDate = maxDate;
         dateFrom.value = formatDateISO(minDate);
         dateTo.value = formatDateISO(maxDate);
+
+        debugInfo.innerHTML += `✅ Загружено: ${rawData.length}, пропущено: ${skipped}\n`;
+        debugInfo.innerHTML += `Период: ${minDate.toLocaleDateString('ru-RU')} — ${maxDate.toLocaleDateString('ru-RU')}\n`;
 
         dashboard.classList.remove('hidden');
         if (clientIdx === -1) document.getElementById('clientsCard').classList.add('hidden');
