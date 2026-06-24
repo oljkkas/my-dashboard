@@ -40,9 +40,10 @@
         .status { margin-top: 10px; font-size: 13px; color: #7f8c8d; }
         .status.success { color: #27ae60; }
         .hidden { display: none !important; }
-        .debug-info { background: #fff3cd; padding: 12px; border-radius: 5px; margin-top: 15px; text-align: left; font-size: 11px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-wrap: break-word; max-height: 500px; overflow-y: auto; line-height: 1.4; }
+        .debug-info { background: #fff3cd; padding: 12px; border-radius: 5px; margin-top: 15px; text-align: left; font-size: 11px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-wrap: break-word; max-height: 600px; overflow-y: auto; line-height: 1.4; }
         .debug-section { margin: 10px 0; padding: 8px; background: rgba(255,255,255,0.5); border-radius: 3px; }
         .debug-title { font-weight: bold; color: #856404; margin-bottom: 5px; }
+        .highlight { background: #ffeb3b; padding: 2px 4px; border-radius: 2px; }
     </style>
 </head>
 <body>
@@ -100,9 +101,9 @@
     let rawData = [], columnMap = {}, charts = {}, globalMinDate = null, globalMaxDate = null;
     const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
-    // Функция очистки от невидимых символов
     function cleanString(str) {
-        return str.replace(/[\uFEFF\u200B\u200C\u200D\u00A0\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069]/g, '').trim();
+        if (!str) return '';
+        return String(str).replace(/[\uFEFF\u200B\u200C\u200D\u00A0\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\u00AD]/g, '').trim();
     }
 
     async function loadData() {
@@ -119,10 +120,9 @@
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             let text = await response.text();
             
-            // Удаляем BOM-символ в начале файла
             if (text.charCodeAt(0) === 0xFEFF) {
                 text = text.substring(1);
-                debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">ℹ️ Удалён BOM-символ из начала файла</div></div>`;
+                debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">ℹ️ Удалён BOM-символ</div></div>`;
             }
             
             if (text.trim().startsWith('<!')) throw new Error('Таблица закрыта');
@@ -155,8 +155,14 @@
         let current = '', inQuotes = false;
         for (let i = 0; i < line.length; i++) {
             const char = line[i];
-            if (char === '"') { if (inQuotes && line[i+1] === '"') { current += '"'; i++; } else inQuotes = !inQuotes; }
-            else if (char === delimiter && !inQuotes) { result.push(cleanString(current)); current = ''; }
+            if (char === '"') { 
+                if (inQuotes && line[i+1] === '"') { current += '"'; i++; } 
+                else inQuotes = !inQuotes; 
+            }
+            else if (char === delimiter && !inQuotes) { 
+                result.push(cleanString(current)); 
+                current = ''; 
+            }
             else current += char;
         }
         result.push(cleanString(current));
@@ -222,7 +228,8 @@
         if (typeof str === 'number') return str;
         if (!str) return NaN;
         str = String(str).trim();
-        str = str.replace(/[\s\u00A0]/g, '').replace(',', '.');
+        // Агрессивная очистка — оставляем только цифры, точки, запятые и минус
+        str = str.replace(/[^\d.,-]/g, '').replace(',', '.');
         const num = parseFloat(str);
         return isNaN(num) ? NaN : num;
     }
@@ -245,10 +252,30 @@
         });
         debugInfo.innerHTML += `</div>`;
 
-        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📊 Первые 5 строк:</div>`;
-        for (let i = 1; i < Math.min(6, lines.length); i++) {
-            const row = parseCSVLine(lines[i], delimiter);
-            debugInfo.innerHTML += `  Строка ${i}: ${JSON.stringify(row)}\n`;
+        // ПОДРОБНАЯ ДИАГНОСТИКА ПЕРВЫХ 3 СТРОК
+        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА ПЕРВЫХ 3 СТРОК:</div>`;
+        for (let i = 1; i < Math.min(4, lines.length); i++) {
+            const rawLine = lines[i];
+            const row = parseCSVLine(rawLine, delimiter);
+            
+            debugInfo.innerHTML += `\n<span class="highlight">Строка ${i} (сырая):</span>\n`;
+            debugInfo.innerHTML += `  Длина: ${rawLine.length} символов\n`;
+            debugInfo.innerHTML += `  Первые 50 символов: "${rawLine.substring(0, 50)}"\n`;
+            debugInfo.innerHTML += `  Разобрано: ${JSON.stringify(row)}\n`;
+            
+            if (row.length > dateIdx) {
+                const rawDate = row[dateIdx];
+                const dateObj = parseDate(rawDate);
+                debugInfo.innerHTML += `  Дата (сырая): "${rawDate}" (длина: ${rawDate.length})\n`;
+                debugInfo.innerHTML += `  Дата (парс): ${dateObj ? dateObj.toLocaleDateString('ru-RU') : '❌ НЕ РАСПОЗНАНА'}\n`;
+            }
+            
+            if (row.length > sumIdx) {
+                const rawSum = row[sumIdx];
+                const sumVal = parseSum(rawSum);
+                debugInfo.innerHTML += `  Сумма (сырая): "${rawSum}" (длина: ${rawSum.length})\n`;
+                debugInfo.innerHTML += `  Сумма (парс): ${isNaN(sumVal) ? '❌ НЕ РАСПОЗНАНА' : sumVal.toLocaleString('ru-RU') + ' ₽'}\n`;
+            }
         }
         debugInfo.innerHTML += `</div>`;
 
