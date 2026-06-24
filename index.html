@@ -175,53 +175,66 @@
     }
 
     function parseDate(str) {
-        if (!str) return null;
-        str = String(str).trim();
-        
-        // Число Excel
-        if (/^\d+$/.test(str)) {
-            const excelDate = parseInt(str);
-            if (excelDate > 30000 && excelDate < 100000) {
-                return new Date((excelDate - 25569) * 86400 * 1000);
-            }
+    if (!str) return null;
+    str = String(str).trim();
+    
+    // ДД.ММ.ГГГГ (4-значный год)
+    if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) {
+        const parts = str.split('.');
+        const day = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
+        if (day <= 31 && month <= 12 && year > 1900) {
+            return new Date(year, month - 1, day);
         }
-        
-        // ДД.ММ.ГГГГ
-        if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) {
-            const parts = str.split('.');
-            const day = parseInt(parts[0]);
-            const month = parseInt(parts[1]);
-            const year = parseInt(parts[2]);
-            if (day <= 31 && month <= 12 && year > 1900) {
-                return new Date(year, month - 1, day);
-            }
+    }
+    
+    // ДД.ММ.ГГ (2-значный год) — ВАШ ФОРМАТ!
+    if (/^\d{1,2}\.\d{1,2}\.\d{2}$/.test(str)) {
+        const parts = str.split('.');
+        const day = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        let year = parseInt(parts[2]);
+        // Добавляем 2000 для двузначного года
+        year = year < 100 ? 2000 + year : year;
+        if (day <= 31 && month <= 12) {
+            return new Date(year, month - 1, day);
         }
-        
-        // ДД/ММ/ГГГГ
-        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
-            const parts = str.split('/');
-            const first = parseInt(parts[0]);
-            const second = parseInt(parts[1]);
-            const year = parseInt(parts[2]);
-            if (first > 12 && second <= 12) {
-                return new Date(year, second - 1, first);
-            }
-            if (second > 12 && first <= 12) {
-                return new Date(year, first - 1, second);
-            }
+    }
+    
+    // Число Excel
+    if (/^\d+$/.test(str)) {
+        const excelDate = parseInt(str);
+        if (excelDate > 30000 && excelDate < 100000) {
+            return new Date((excelDate - 25569) * 86400 * 1000);
+        }
+    }
+    
+    // ДД/ММ/ГГГГ
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+        const parts = str.split('/');
+        const first = parseInt(parts[0]);
+        const second = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
+        if (first > 12 && second <= 12) {
             return new Date(year, second - 1, first);
         }
-        
-        // ГГГГ-ММ-ДД
-        if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
-            const d = new Date(str);
-            if (!isNaN(d.getTime())) return d;
+        if (second > 12 && first <= 12) {
+            return new Date(year, first - 1, second);
         }
-        
-        // Fallback
-        const d = new Date(str);
-        return isNaN(d.getTime()) ? null : d;
+        return new Date(year, second - 1, first);
     }
+    
+    // ГГГГ-ММ-ДД
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d;
+    }
+    
+    // Fallback
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+}
 
     function parseSum(str) {
         if (typeof str === 'number') return str;
