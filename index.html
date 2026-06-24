@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Дашборд продаж-аналитика</title>
+    <title>Дашборд продаж</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -39,12 +39,14 @@
         .status { margin-top: 10px; font-size: 13px; color: #7f8c8d; }
         .status.success { color: #27ae60; }
         .hidden { display: none !important; }
-        .debug-info { background: #fff3cd; padding: 12px; border-radius: 5px; margin-top: 15px; text-align: left; font-size: 12px; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; }
+        .debug-info { background: #fff3cd; padding: 12px; border-radius: 5px; margin-top: 15px; text-align: left; font-size: 11px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-wrap: break-word; max-height: 500px; overflow-y: auto; line-height: 1.4; }
+        .debug-section { margin: 10px 0; padding: 8px; background: rgba(255,255,255,0.5); border-radius: 3px; }
+        .debug-title { font-weight: bold; color: #856404; margin-bottom: 5px; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h1>📈 Аналитика продаж </h1>
+    <h1>📊 Аналитика продаж</h1>
 
     <div class="card">
         <h2>Источник данных</h2>
@@ -102,7 +104,7 @@
 
     function extractTableId(url) {
         const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-        if (!match) throw new Error('Неверная ссылка. Нужна ссылка вида docs.google.com/spreadsheets/d/...');
+        if (!match) throw new Error('Неверная ссылка');
         return match[1];
     }
 
@@ -124,20 +126,20 @@
         setStatus('Загрузка...', 'loading');
         loadBtn.disabled = true;
         errorMsg.textContent = '';
-        debugInfo.innerHTML = '<strong>Диагностика:</strong>\n';
+        debugInfo.innerHTML = '';
         debugInfo.classList.remove('hidden');
 
         const queryUrl = `https://docs.google.com/spreadsheets/d/${tableId}/gviz/tq?tqx=out:csv&gid=${gid}&_=${Date.now()}`;
 
         try {
             const response = await fetch(queryUrl);
-            if (!response.ok) throw new Error(`HTTP ${response.status}. Проверьте доступ к таблице.`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const text = await response.text();
-            if (text.trim().startsWith('<!')) throw new Error('Таблица закрыта. Откройте доступ "Все, у кого есть ссылка".');
+            if (text.trim().startsWith('<!')) throw new Error('Таблица закрыта');
             const lines = text.split('\n').filter(l => l.trim());
-            if (lines.length < 2) throw new Error('Файл пуст.');
+            if (lines.length < 2) throw new Error('Файл пуст');
             parseFile(lines);
-            setStatus(`✅ Загружено строк: ${rawData.length}. Обновлено: ${new Date().toLocaleTimeString('ru-RU')}`, 'success');
+            setStatus(`✅ Загружено: ${rawData.length} строк. Обновлено: ${new Date().toLocaleTimeString('ru-RU')}`, 'success');
             refreshBtn.disabled = false;
         } catch (err) {
             debugInfo.innerHTML += `\n❌ Ошибка: ${err.message}\n`;
@@ -172,78 +174,51 @@
         return result;
     }
 
-    // УЛУЧШЕННАЯ ФУНКЦИЯ ПАРСИНГА ДАТ
     function parseDate(str) {
         if (!str) return null;
         str = String(str).trim();
         
-        // Если это число (Excel serial date)
+        // Число Excel
         if (/^\d+$/.test(str)) {
             const excelDate = parseInt(str);
-            if (excelDate > 30000 && excelDate < 100000) { // Диапазон для дат 1980-2100
-                const date = new Date((excelDate - 25569) * 86400 * 1000);
-                return date;
+            if (excelDate > 30000 && excelDate < 100000) {
+                return new Date((excelDate - 25569) * 86400 * 1000);
             }
         }
         
-        // Русский формат: ДД.ММ.ГГГГ (приоритетный!)
+        // ДД.ММ.ГГГГ
         if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) {
             const parts = str.split('.');
             const day = parseInt(parts[0]);
             const month = parseInt(parts[1]);
             const year = parseInt(parts[2]);
-            // Проверяем, что это действительно ДД.ММ.ГГГГ, а не ММ.ДД.ГГГГ
-            if (day <= 31 && month <= 12) {
+            if (day <= 31 && month <= 12 && year > 1900) {
                 return new Date(year, month - 1, day);
             }
         }
         
-        // Формат с разделителем /: ДД/ММ/ГГГГ или ММ/ДД/ГГГГ
+        // ДД/ММ/ГГГГ
         if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
             const parts = str.split('/');
             const first = parseInt(parts[0]);
             const second = parseInt(parts[1]);
             const year = parseInt(parts[2]);
-            // Если первое число > 12, то это точно день
             if (first > 12 && second <= 12) {
                 return new Date(year, second - 1, first);
             }
-            // Если второе число > 12, то это точно день
             if (second > 12 && first <= 12) {
                 return new Date(year, first - 1, second);
             }
-            // По умолчанию считаем ДД/ММ/ГГГГ (европейский формат)
             return new Date(year, second - 1, first);
         }
         
-        // ISO формат: ГГГГ-ММ-ДД
+        // ГГГГ-ММ-ДД
         if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
             const d = new Date(str);
             if (!isNaN(d.getTime())) return d;
         }
         
-        // Текстовые форматы с русскими месяцами
-        const ruMonths = {
-            'янв': 0, 'фев': 1, 'мар': 2, 'апр': 3, 'май': 4, 'июн': 5,
-            'июл': 6, 'авг': 7, 'сен': 8, 'окт': 9, 'ноя': 10, 'дек': 11,
-            'январ': 0, 'феврал': 1, 'март': 2, 'апрел': 3, 'мая': 4, 'июн': 5,
-            'июл': 6, 'август': 7, 'сентябр': 8, 'октябр': 9, 'ноябр': 10, 'декабр': 11
-        };
-        
-        const lowerStr = str.toLowerCase();
-        for (const [key, month] of Object.entries(ruMonths)) {
-            if (lowerStr.includes(key)) {
-                const dayMatch = str.match(/(\d{1,2})/);
-                const yearMatch = str.match(/(\d{4})/);
-                if (dayMatch && yearMatch) {
-                    const day = parseInt(dayMatch[1]);
-                    const year = parseInt(yearMatch[1]);
-                    return new Date(year, month, day);
-                }
-            }
-        }
-        
-        // Fallback: пробуем стандартный парсер
+        // Fallback
         const d = new Date(str);
         return isNaN(d.getTime()) ? null : d;
     }
@@ -251,7 +226,11 @@
     function parseSum(str) {
         if (typeof str === 'number') return str;
         if (!str) return NaN;
-        return parseFloat(String(str).replace(/[^\d.,-]/g, '').replace(',', '.'));
+        str = String(str).trim();
+        // Убираем пробелы, неразрывные пробелы, заменяем запятую на точку
+        str = str.replace(/[\s\u00A0]/g, '').replace(',', '.');
+        const num = parseFloat(str);
+        return isNaN(num) ? NaN : num;
     }
 
     function parseFile(lines) {
@@ -265,29 +244,43 @@
         if (dateIdx === -1 || sumIdx === -1) throw new Error('Не найдены колонки «Дата» и «Сумма»');
         columnMap = { date: dateIdx, client: clientIdx, product: productIdx, sum: sumIdx };
 
-        debugInfo.innerHTML += `Заголовки: ${headers.join(' | ')}\n`;
-        debugInfo.innerHTML += `Колонка даты: индекс ${dateIdx}\n\n`;
+        // Показываем заголовки
+        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📋 Заголовки колонок:</div>`;
+        headers.forEach((h, i) => {
+            const marker = i === dateIdx ? ' [ДАТА]' : i === sumIdx ? ' [СУММА]' : i === clientIdx ? ' [КЛИЕНТ]' : i === productIdx ? ' [ПРОДУКТ]' : '';
+            debugInfo.innerHTML += `  ${i}: "${h}"${marker}\n`;
+        });
+        debugInfo.innerHTML += `</div>`;
+
+        // Показываем первые 5 строк сырых данных
+        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📊 Первые 5 строк данных (сырые):</div>`;
+        for (let i = 1; i < Math.min(6, lines.length); i++) {
+            const row = parseCSVLine(lines[i], delimiter);
+            debugInfo.innerHTML += `  Строка ${i}: ${JSON.stringify(row)}\n`;
+        }
+        debugInfo.innerHTML += `</div>`;
 
         rawData = [];
-        let skipped = 0, minDate = null, maxDate = null;
-        const dateFormats = {}; // Собираем статистику форматов
+        const skippedRows = [];
+        let minDate = null, maxDate = null;
         
         for (let i = 1; i < lines.length; i++) {
             const row = parseCSVLine(lines[i], delimiter);
             if (!row.length) continue;
             
-            const rawDateStr = row[dateIdx];
-            const dateObj = parseDate(rawDateStr);
-            const sumVal = parseSum(row[sumIdx]);
+            const rawDate = row[dateIdx];
+            const rawSum = row[sumIdx];
+            const dateObj = parseDate(rawDate);
+            const sumVal = parseSum(rawSum);
             
-            if (!dateObj || isNaN(sumVal)) { 
-                skipped++; 
-                continue; 
+            if (!dateObj) {
+                skippedRows.push({ line: i, reason: 'Неверная дата', raw: rawDate, row });
+                continue;
             }
-            
-            // Собираем статистику форматов дат
-            const format = rawDateStr.trim();
-            dateFormats[format] = (dateFormats[format] || 0) + 1;
+            if (isNaN(sumVal)) {
+                skippedRows.push({ line: i, reason: 'Неверная сумма', raw: rawSum, row });
+                continue;
+            }
             
             const client = clientIdx >= 0 ? (row[clientIdx] || '—').trim() : null;
             const product = productIdx >= 0 ? (row[productIdx] || '—').trim() : null;
@@ -299,20 +292,27 @@
         
         if (rawData.length === 0) throw new Error('Нет валидных данных');
 
-        // Показываем статистику форматов дат
-        debugInfo.innerHTML += `<strong>Форматы дат в данных:</strong>\n`;
-        const topFormats = Object.entries(dateFormats).sort((a, b) => b[1] - a[1]).slice(0, 5);
-        topFormats.forEach(([format, count]) => {
-            debugInfo.innerHTML += `  "${format}" — ${count} раз\n`;
-        });
-        debugInfo.innerHTML += `\n`;
+        // Показываем пропущенные строки
+        if (skippedRows.length > 0) {
+            debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">⚠️ Пропущенные строки (${skippedRows.length}):</div>`;
+            skippedRows.slice(0, 10).forEach(s => {
+                debugInfo.innerHTML += `  Строка ${s.line}: ${s.reason} — "${s.raw}"\n`;
+            });
+            if (skippedRows.length > 10) {
+                debugInfo.innerHTML += `  ... и ещё ${skippedRows.length - 10} строк\n`;
+            }
+            debugInfo.innerHTML += `</div>`;
+        }
 
         globalMinDate = minDate; globalMaxDate = maxDate;
         dateFrom.value = formatDateISO(minDate);
         dateTo.value = formatDateISO(maxDate);
 
-        debugInfo.innerHTML += `✅ Загружено: ${rawData.length}, пропущено: ${skipped}\n`;
-        debugInfo.innerHTML += `Период: ${minDate.toLocaleDateString('ru-RU')} — ${maxDate.toLocaleDateString('ru-RU')}\n`;
+        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">✅ Результат:</div>`;
+        debugInfo.innerHTML += `  Загружено: ${rawData.length} строк\n`;
+        debugInfo.innerHTML += `  Пропущено: ${skippedRows.length} строк\n`;
+        debugInfo.innerHTML += `  Период: ${minDate.toLocaleDateString('ru-RU')} — ${maxDate.toLocaleDateString('ru-RU')}\n`;
+        debugInfo.innerHTML += `</div>`;
 
         dashboard.classList.remove('hidden');
         if (clientIdx === -1) document.getElementById('clientsCard').classList.add('hidden');
