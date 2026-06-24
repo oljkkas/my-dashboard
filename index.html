@@ -94,13 +94,16 @@
     const resetFilter = document.getElementById('resetFilter');
     const filterInfo = document.getElementById('filterInfo');
 
-    // Зашитая ссылка на таблицу
-    const TABLE_URL = 'https://docs.google.com/spreadsheets/d/1VYoqb9niM5Bjuz4BaqnO5PQ8Xog7ph8Gjc473J4lWtY/edit?usp=sharing';
     const TABLE_ID = '1VYoqb9niM5Bjuz4BaqnO5PQ8Xog7ph8Gjc473J4lWtY';
     const GID = '0';
 
     let rawData = [], columnMap = {}, charts = {}, globalMinDate = null, globalMaxDate = null;
     const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+    // Функция очистки от невидимых символов
+    function cleanString(str) {
+        return str.replace(/[\uFEFF\u200B\u200C\u200D\u00A0\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069]/g, '').trim();
+    }
 
     async function loadData() {
         setStatus('Загрузка...', 'loading');
@@ -119,7 +122,7 @@
             // Удаляем BOM-символ в начале файла
             if (text.charCodeAt(0) === 0xFEFF) {
                 text = text.substring(1);
-                debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">ℹ️ Обнаружен и удалён BOM-символ</div></div>`;
+                debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">ℹ️ Удалён BOM-символ из начала файла</div></div>`;
             }
             
             if (text.trim().startsWith('<!')) throw new Error('Таблица закрыта');
@@ -139,8 +142,6 @@
     function showError(msg) { errorMsg.textContent = msg; setStatus('', ''); }
 
     refreshBtn.addEventListener('click', loadData);
-
-    // Автозагрузка при открытии страницы
     window.addEventListener('load', loadData);
 
     function detectDelimiter(line) {
@@ -155,10 +156,10 @@
         for (let i = 0; i < line.length; i++) {
             const char = line[i];
             if (char === '"') { if (inQuotes && line[i+1] === '"') { current += '"'; i++; } else inQuotes = !inQuotes; }
-            else if (char === delimiter && !inQuotes) { result.push(current.trim()); current = ''; }
+            else if (char === delimiter && !inQuotes) { result.push(cleanString(current)); current = ''; }
             else current += char;
         }
-        result.push(current.trim());
+        result.push(cleanString(current));
         return result;
     }
 
@@ -166,7 +167,6 @@
         if (!str) return null;
         str = String(str).trim();
         
-        // ДД.ММ.ГГГГ (4-значный год)
         if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) {
             const parts = str.split('.');
             const day = parseInt(parts[0]);
@@ -177,7 +177,6 @@
             }
         }
         
-        // ДД.ММ.ГГ (2-значный год)
         if (/^\d{1,2}\.\d{1,2}\.\d{2}$/.test(str)) {
             const parts = str.split('.');
             const day = parseInt(parts[0]);
@@ -189,7 +188,6 @@
             }
         }
         
-        // Число Excel
         if (/^\d+$/.test(str)) {
             const excelDate = parseInt(str);
             if (excelDate > 30000 && excelDate < 100000) {
@@ -197,7 +195,6 @@
             }
         }
         
-        // ДД/ММ/ГГГГ
         if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
             const parts = str.split('/');
             const first = parseInt(parts[0]);
@@ -212,13 +209,11 @@
             return new Date(year, second - 1, first);
         }
         
-        // ГГГГ-ММ-ДД
         if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
             const d = new Date(str);
             if (!isNaN(d.getTime())) return d;
         }
         
-        // Fallback
         const d = new Date(str);
         return isNaN(d.getTime()) ? null : d;
     }
@@ -243,14 +238,14 @@
         if (dateIdx === -1 || sumIdx === -1) throw new Error('Не найдены колонки «Дата» и «Сумма»');
         columnMap = { date: dateIdx, client: clientIdx, product: productIdx, sum: sumIdx };
 
-        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📋 Заголовки колонок:</div>`;
+        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📋 Заголовки:</div>`;
         headers.forEach((h, i) => {
             const marker = i === dateIdx ? ' [ДАТА]' : i === sumIdx ? ' [СУММА]' : i === clientIdx ? ' [КЛИЕНТ]' : i === productIdx ? ' [ПРОДУКТ]' : '';
             debugInfo.innerHTML += `  ${i}: "${h}"${marker}\n`;
         });
         debugInfo.innerHTML += `</div>`;
 
-        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📊 Первые 5 строк данных:</div>`;
+        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📊 Первые 5 строк:</div>`;
         for (let i = 1; i < Math.min(6, lines.length); i++) {
             const row = parseCSVLine(lines[i], delimiter);
             debugInfo.innerHTML += `  Строка ${i}: ${JSON.stringify(row)}\n`;
@@ -271,11 +266,11 @@
             const sumVal = parseSum(rawSum);
             
             if (!dateObj) {
-                skippedRows.push({ line: i, reason: 'Неверная дата', raw: rawDate, row });
+                skippedRows.push({ line: i, reason: 'Неверная дата', raw: rawDate });
                 continue;
             }
             if (isNaN(sumVal)) {
-                skippedRows.push({ line: i, reason: 'Неверная сумма', raw: rawSum, row });
+                skippedRows.push({ line: i, reason: 'Неверная сумма', raw: rawSum });
                 continue;
             }
             
@@ -290,13 +285,10 @@
         if (rawData.length === 0) throw new Error('Нет валидных данных');
 
         if (skippedRows.length > 0) {
-            debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">⚠️ Пропущенные строки (${skippedRows.length}):</div>`;
-            skippedRows.slice(0, 10).forEach(s => {
+            debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">⚠️ Пропущено (${skippedRows.length}):</div>`;
+            skippedRows.slice(0, 5).forEach(s => {
                 debugInfo.innerHTML += `  Строка ${s.line}: ${s.reason} — "${s.raw}"\n`;
             });
-            if (skippedRows.length > 10) {
-                debugInfo.innerHTML += `  ... и ещё ${skippedRows.length - 10} строк\n`;
-            }
             debugInfo.innerHTML += `</div>`;
         }
 
