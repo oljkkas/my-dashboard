@@ -2,6 +2,9 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Дашборд продаж</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -11,8 +14,6 @@
         h1 { text-align: center; color: #2c3e50; }
         h2 { color: #2c3e50; font-size: 18px; margin: 0 0 15px 0; }
         .card { background: #fff; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); padding: 20px; margin-bottom: 20px; }
-        .url-row { display: flex; gap: 10px; flex-wrap: wrap; }
-        .url-row input { flex: 1; min-width: 250px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
         .btn { background: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
         .btn:hover { background: #2980b9; }
         .btn:disabled { background: #bdc3c7; cursor: not-allowed; }
@@ -50,11 +51,7 @@
 
     <div class="card">
         <h2>Источник данных</h2>
-        <div class="url-row">
-            <input type="text" id="sheetUrl" placeholder="Ссылка на Google-таблицу (с открытым доступом)...">
-            <button class="btn btn-success" id="loadBtn">📥 Загрузить</button>
-            <button class="btn" id="refreshBtn" disabled>🔄 Обновить</button>
-        </div>
+        <button class="btn btn-success" id="refreshBtn">🔄 Обновить данные</button>
         <div id="statusMsg" class="status"></div>
         <div id="errorMsg" class="error"></div>
         <div id="debugInfo" class="debug-info hidden"></div>
@@ -87,8 +84,6 @@
 </div>
 
 <script>
-    const sheetUrlInput = document.getElementById('sheetUrl');
-    const loadBtn = document.getElementById('loadBtn');
     const refreshBtn = document.getElementById('refreshBtn');
     const statusMsg = document.getElementById('statusMsg');
     const errorMsg = document.getElementById('errorMsg');
@@ -99,42 +94,34 @@
     const resetFilter = document.getElementById('resetFilter');
     const filterInfo = document.getElementById('filterInfo');
 
+    // Зашитая ссылка на таблицу
+    const TABLE_URL = 'https://docs.google.com/spreadsheets/d/1VYoqb9niM5Bjuz4BaqnO5PQ8Xog7ph8Gjc473J4lWtY/edit?usp=sharing';
+    const TABLE_ID = '1VYoqb9niM5Bjuz4BaqnO5PQ8Xog7ph8Gjc473J4lWtY';
+    const GID = '0';
+
     let rawData = [], columnMap = {}, charts = {}, globalMinDate = null, globalMaxDate = null;
     const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
-    function extractTableId(url) {
-        const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-        if (!match) throw new Error('Неверная ссылка');
-        return match[1];
-    }
-
-    function extractGid(url) {
-        const match = url.match(/[?&]gid=(\d+)/);
-        return match ? match[1] : '0';
-    }
-
     async function loadData() {
-        const url = sheetUrlInput.value.trim();
-        if (!url) { showError('Вставьте ссылку'); return; }
-
-        let tableId, gid;
-        try {
-            tableId = extractTableId(url);
-            gid = extractGid(url);
-        } catch (e) { showError(e.message); return; }
-
         setStatus('Загрузка...', 'loading');
-        loadBtn.disabled = true;
+        refreshBtn.disabled = true;
         errorMsg.textContent = '';
         debugInfo.innerHTML = '';
         debugInfo.classList.remove('hidden');
 
-        const queryUrl = `https://docs.google.com/spreadsheets/d/${tableId}/gviz/tq?tqx=out:csv&gid=${gid}&_=${Date.now()}`;
+        const queryUrl = `https://docs.google.com/spreadsheets/d/${TABLE_ID}/gviz/tq?tqx=out:csv&gid=${GID}&_=${Date.now()}`;
 
         try {
             const response = await fetch(queryUrl);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const text = await response.text();
+            let text = await response.text();
+            
+            // Удаляем BOM-символ в начале файла
+            if (text.charCodeAt(0) === 0xFEFF) {
+                text = text.substring(1);
+                debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">ℹ️ Обнаружен и удалён BOM-символ</div></div>`;
+            }
+            
             if (text.trim().startsWith('<!')) throw new Error('Таблица закрыта');
             const lines = text.split('\n').filter(l => l.trim());
             if (lines.length < 2) throw new Error('Файл пуст');
@@ -144,16 +131,17 @@
         } catch (err) {
             debugInfo.innerHTML += `\n❌ Ошибка: ${err.message}\n`;
             showError('Ошибка: ' + err.message);
-            loadBtn.disabled = false;
+            refreshBtn.disabled = false;
         }
     }
 
     function setStatus(msg, type) { statusMsg.textContent = msg; statusMsg.className = 'status ' + (type || ''); }
     function showError(msg) { errorMsg.textContent = msg; setStatus('', ''); }
 
-    loadBtn.addEventListener('click', loadData);
     refreshBtn.addEventListener('click', loadData);
-    sheetUrlInput.addEventListener('keypress', e => { if (e.key === 'Enter') loadData(); });
+
+    // Автозагрузка при открытии страницы
+    window.addEventListener('load', loadData);
 
     function detectDelimiter(line) {
         const comma = (line.match(/,/g) || []).length;
@@ -175,72 +163,70 @@
     }
 
     function parseDate(str) {
-    if (!str) return null;
-    str = String(str).trim();
-    
-    // ДД.ММ.ГГГГ (4-значный год)
-    if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) {
-        const parts = str.split('.');
-        const day = parseInt(parts[0]);
-        const month = parseInt(parts[1]);
-        const year = parseInt(parts[2]);
-        if (day <= 31 && month <= 12 && year > 1900) {
-            return new Date(year, month - 1, day);
+        if (!str) return null;
+        str = String(str).trim();
+        
+        // ДД.ММ.ГГГГ (4-значный год)
+        if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) {
+            const parts = str.split('.');
+            const day = parseInt(parts[0]);
+            const month = parseInt(parts[1]);
+            const year = parseInt(parts[2]);
+            if (day <= 31 && month <= 12 && year > 1900) {
+                return new Date(year, month - 1, day);
+            }
         }
-    }
-    
-    // ДД.ММ.ГГ (2-значный год) — ВАШ ФОРМАТ!
-    if (/^\d{1,2}\.\d{1,2}\.\d{2}$/.test(str)) {
-        const parts = str.split('.');
-        const day = parseInt(parts[0]);
-        const month = parseInt(parts[1]);
-        let year = parseInt(parts[2]);
-        // Добавляем 2000 для двузначного года
-        year = year < 100 ? 2000 + year : year;
-        if (day <= 31 && month <= 12) {
-            return new Date(year, month - 1, day);
+        
+        // ДД.ММ.ГГ (2-значный год)
+        if (/^\d{1,2}\.\d{1,2}\.\d{2}$/.test(str)) {
+            const parts = str.split('.');
+            const day = parseInt(parts[0]);
+            const month = parseInt(parts[1]);
+            let year = parseInt(parts[2]);
+            year = year < 100 ? 2000 + year : year;
+            if (day <= 31 && month <= 12) {
+                return new Date(year, month - 1, day);
+            }
         }
-    }
-    
-    // Число Excel
-    if (/^\d+$/.test(str)) {
-        const excelDate = parseInt(str);
-        if (excelDate > 30000 && excelDate < 100000) {
-            return new Date((excelDate - 25569) * 86400 * 1000);
+        
+        // Число Excel
+        if (/^\d+$/.test(str)) {
+            const excelDate = parseInt(str);
+            if (excelDate > 30000 && excelDate < 100000) {
+                return new Date((excelDate - 25569) * 86400 * 1000);
+            }
         }
-    }
-    
-    // ДД/ММ/ГГГГ
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
-        const parts = str.split('/');
-        const first = parseInt(parts[0]);
-        const second = parseInt(parts[1]);
-        const year = parseInt(parts[2]);
-        if (first > 12 && second <= 12) {
+        
+        // ДД/ММ/ГГГГ
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+            const parts = str.split('/');
+            const first = parseInt(parts[0]);
+            const second = parseInt(parts[1]);
+            const year = parseInt(parts[2]);
+            if (first > 12 && second <= 12) {
+                return new Date(year, second - 1, first);
+            }
+            if (second > 12 && first <= 12) {
+                return new Date(year, first - 1, second);
+            }
             return new Date(year, second - 1, first);
         }
-        if (second > 12 && first <= 12) {
-            return new Date(year, first - 1, second);
+        
+        // ГГГГ-ММ-ДД
+        if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+            const d = new Date(str);
+            if (!isNaN(d.getTime())) return d;
         }
-        return new Date(year, second - 1, first);
-    }
-    
-    // ГГГГ-ММ-ДД
-    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+        
+        // Fallback
         const d = new Date(str);
-        if (!isNaN(d.getTime())) return d;
+        return isNaN(d.getTime()) ? null : d;
     }
-    
-    // Fallback
-    const d = new Date(str);
-    return isNaN(d.getTime()) ? null : d;
-}
 
     function parseSum(str) {
         if (typeof str === 'number') return str;
         if (!str) return NaN;
         str = String(str).trim();
-        // Убираем пробелы, неразрывные пробелы, заменяем запятую на точку
         str = str.replace(/[\s\u00A0]/g, '').replace(',', '.');
         const num = parseFloat(str);
         return isNaN(num) ? NaN : num;
@@ -257,7 +243,6 @@
         if (dateIdx === -1 || sumIdx === -1) throw new Error('Не найдены колонки «Дата» и «Сумма»');
         columnMap = { date: dateIdx, client: clientIdx, product: productIdx, sum: sumIdx };
 
-        // Показываем заголовки
         debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📋 Заголовки колонок:</div>`;
         headers.forEach((h, i) => {
             const marker = i === dateIdx ? ' [ДАТА]' : i === sumIdx ? ' [СУММА]' : i === clientIdx ? ' [КЛИЕНТ]' : i === productIdx ? ' [ПРОДУКТ]' : '';
@@ -265,8 +250,7 @@
         });
         debugInfo.innerHTML += `</div>`;
 
-        // Показываем первые 5 строк сырых данных
-        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📊 Первые 5 строк данных (сырые):</div>`;
+        debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">📊 Первые 5 строк данных:</div>`;
         for (let i = 1; i < Math.min(6, lines.length); i++) {
             const row = parseCSVLine(lines[i], delimiter);
             debugInfo.innerHTML += `  Строка ${i}: ${JSON.stringify(row)}\n`;
@@ -305,7 +289,6 @@
         
         if (rawData.length === 0) throw new Error('Нет валидных данных');
 
-        // Показываем пропущенные строки
         if (skippedRows.length > 0) {
             debugInfo.innerHTML += `<div class="debug-section"><div class="debug-title">⚠️ Пропущенные строки (${skippedRows.length}):</div>`;
             skippedRows.slice(0, 10).forEach(s => {
